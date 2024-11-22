@@ -1,4 +1,4 @@
-caesar: caesar.c
+caesar: test.c caesar.c
 
 .PHONY: clean
 clean:
