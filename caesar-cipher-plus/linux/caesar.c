@@ -26,33 +26,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#include "caesar.h"
 
-#define DUMP_ROW_WIDTH (15)
-#define MAX_PSWD_LEN (255)
+char mapping_table[MAP_TALBE_LEN];
+char key[MAX_PSWD_LEN + 1];
 
-#define CHAR_START (0x21) /* '!'*/
-#define CHAR_END   (0x7E)  /* '~' */
-#define CHAR_NUM   (CHAR_END - CHAR_START + 1)
-
-enum {
-	OP_ENCRYPT    = 0x01,
-	OP_DECRYPT    = 0x02,
-	PARAM_PSWD    = 0x04,
-	PARAM_STR     = 0x08,
-	PARAM_VERBOSE = 0x10,
-};
-
-char mapping_table[CHAR_NUM];
-
-int get_password(char *password)
+static int get_password(char *password)
 {
 	scanf("%s", password);
 
 	return strlen(password);
 }
 
-int char_in_array(char ch, char *array, int len)
+static int char_in_array(char ch, char *array, int len)
 {
 	int i;
 
@@ -65,7 +51,7 @@ int char_in_array(char ch, char *array, int len)
 	return -1;
 }
 
-void encrypt(char *str, char char_start, char * mapping_table)
+static void __encrypt(char *str, char char_start, char * mapping_table)
 {
 	int i;
 	int len = strlen(str);
@@ -74,7 +60,7 @@ void encrypt(char *str, char char_start, char * mapping_table)
 		str[i] = mapping_table[str[i] - char_start];
 }
 
-void decrypt(char *str, char char_start, char * mapping_table, int table_len)
+static void __decrypt(char *str, char char_start, char * mapping_table, int table_len)
 {
 	int i;
 	int str_len = strlen(str);
@@ -84,7 +70,7 @@ void decrypt(char *str, char char_start, char * mapping_table, int table_len)
 }
 
 
-void build_mapping_table(char *key, char *mapping_table, int table_len)
+static void build_mapping_table(char *key, char *mapping_table, int table_len)
 {
 	int i, j;
 	int idx;
@@ -109,7 +95,33 @@ void build_mapping_table(char *key, char *mapping_table, int table_len)
 	}
 }
 
-void dump_mapping_table(char char_start, char *mapping_table, int table_len)
+static void remove_duplicate_char(const char *src, char *dest)
+{
+	char counter[255] = {};
+
+	while(*src != '\0') {
+		if (counter[*src] == 0) {
+			counter[*src] = 1;
+			*dest = *src;
+			dest++;
+		}
+		src++;
+	}
+
+	*dest = '\0';
+}
+
+static int check_key(const char *str) {
+    while (*str != '\0') {
+        if (*str < CHAR_START || *str > CHAR_END) {
+            return -1;
+        }
+        str++;
+    }
+    return 0;
+}
+
+void __dump_mapping_table(char char_start, char *mapping_table, int table_len)
 {
 	int i, width;
 	int idx[3] = {};
@@ -147,98 +159,43 @@ void dump_mapping_table(char char_start, char *mapping_table, int table_len)
 	}
 }
 
-void remove_duplicate_char(char *src, char *dest)
+void dump_key(void)
 {
-	char counter[255] = {};
-
-	while(*src != '\0') {
-		if (counter[*src] == 0) {
-			counter[*src] = 1;
-			*dest = *src;
-			dest++;
-		}
-		src++;
-	}
-
-	*dest = '\0';
+	printf("key: %s\n", key);
 }
 
-int main(int argc, char *argv[])
+void dump_mapping_table(void)
 {
-	int i, j;
-	int opt;
-	int table_len = sizeof(mapping_table);
-	uint32_t flags = 0, basic_flags = 0;
-	char *text;
-	char password[MAX_PSWD_LEN + 1];
-	char key[MAX_PSWD_LEN + 1];
+	__dump_mapping_table(CHAR_START, mapping_table, MAP_TALBE_LEN);
+}
 
-	while ((opt = getopt(argc, argv, "edp:s:v")) != -1) {
-		switch (opt) {
-		case 'e':
-			flags |= OP_ENCRYPT;
-			break;
-		case 'd':
-			flags |= OP_DECRYPT;
-			break;
-		case 'p':
-			flags |= PARAM_PSWD;
-			if (strlen(optarg) > MAX_PSWD_LEN) {
-				printf("password exceed %d characters\n", MAX_PSWD_LEN);
-				exit(EXIT_FAILURE);
-			}
-			strncpy(password, optarg, CHAR_NUM - 1);
-			break;
-		case 's':
-			flags |= PARAM_STR;
-			text = malloc(strlen(optarg) + 1);
-			strcpy(text, optarg);
-			break;
-		case 'v':
-			flags |= PARAM_VERBOSE;
-			break;
-		default:
-			printf("Unsupported Arguments!\n");
-			exit(EXIT_FAILURE);
-		}
+int encrypt(char *str) {
+	__encrypt(str, CHAR_START, mapping_table);
+	return 0;
+}
+
+int decrypt(char *str) {
+	__decrypt(str, CHAR_START, mapping_table, MAP_TALBE_LEN);
+	return 0;
+}
+
+int init_env(const char *passwd)
+{
+	if (strlen(passwd) > MAX_PSWD_LEN) {
+		printf("password exceed %d characters\n", MAX_PSWD_LEN);
+		return -1;
 	}
 
-	basic_flags = PARAM_PSWD | PARAM_STR;
-	if (((flags & (basic_flags | OP_ENCRYPT)) !=  (basic_flags | OP_ENCRYPT)) &&
-	                ((flags & (basic_flags | OP_DECRYPT)) != (flags & (basic_flags | OP_DECRYPT)))) {
-		printf("Usage: \
-                        \n encrypt: caesar -e -p password -s string_to_encrypt \
-                        \n decrypt: caesar -d -p password -s string_to_decrypt\n");
-		exit(-1);
+	remove_duplicate_char(passwd, key);
+
+	if (check_key(key) < 0) {
+		printf("key contains invalid character\n");
+		return -1;
 	}
 
-	/* Remove duplicate character in password to generate key */
-	remove_duplicate_char(password, key);
-
-	if (flags & PARAM_VERBOSE) {
-		printf("password: %s\n", password);
-		printf("key:      %s\n", key);
-	}
-
-	printf("string to process: %s\n", text);
 	/* Init mapping_table by key */
-	memset(mapping_table, 0, table_len);
-	build_mapping_table(key, mapping_table, table_len);
+	memset(mapping_table, 0, MAP_TALBE_LEN);
+	build_mapping_table(key, mapping_table, MAP_TALBE_LEN);
 
-	/* Encrypt */
-	if (flags & OP_ENCRYPT) {
-		encrypt(text, CHAR_START, mapping_table);
-		printf("encrypted: %s\n", text);
-	}
-
-	/* Decrypt */
-	if (flags & OP_DECRYPT) {
-		decrypt(text, CHAR_START, mapping_table, table_len);
-		printf("decrypted: %s\n", text);
-	}
-
-	if (flags & PARAM_VERBOSE) {
-		printf("mapping table:\n");
-		dump_mapping_table(CHAR_START, mapping_table, table_len);
-	}
+	return 0;
 }
